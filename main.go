@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -18,9 +19,31 @@ var routes = map[string]string{
 	"ltz.sh":        "http://localhost:5001",
 }
 
+func isIPAddress(host string) bool {
+	ip := strings.Split(host, ":")[0]
+	return net.ParseIP(ip) != nil
+}
+
+func CertHostPolicy(ctx context.Context, host string) error {
+	if isIPAddress(host) {
+		return nil
+	}
+
+	if _, ok := routes[host]; ok {
+		return nil
+	}
+	return fmt.Errorf("unauthorized domain: %s", host)
+}
+
 func reverseProxy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Incoming request: Host=%s Path=%s\n ", r.Host, r.URL.Path)
 	host := strings.Split(r.Host, ":")[0]
+
+	if isIPAddress(host) {
+		http.Redirect(w, r, "https://lumatozer.org", http.StatusMovedPermanently)
+		return
+	}
+
 	target, ok := routes[host]
 
 	if !ok {
@@ -44,14 +67,9 @@ func reverseProxy(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	certManager := &autocert.Manager{
-		Cache:  autocert.DirCache("./certs"),
-		Prompt: autocert.AcceptTOS,
-		HostPolicy: func(ctx context.Context, host string) error {
-			if _, ok := routes[host]; ok {
-				return nil
-			}
-			return fmt.Errorf("unauthorized domain: %s", host)
-		},
+		Cache:      autocert.DirCache("./certs"),
+		Prompt:     autocert.AcceptTOS,
+		HostPolicy: CertHostPolicy,
 	}
 
 	go func() {
