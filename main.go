@@ -1,23 +1,27 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 
 	"golang.org/x/crypto/acme/autocert"
 )
 
 var routes = map[string]string{
-	"lumatozer.org": "http://google.com",
-	"ltz.sh":        "http://localhost:3001",
+	"lumatozer.org": "http://localhost:5000",
+	"ltz.sh":        "http://localhost:5001",
 }
 
 func reverseProxy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Incoming request: Host=%s Path=%s\n ", r.Host, r.URL.Path)
-	target, ok := routes[r.Host]
+	host := strings.Split(r.Host, ":")[0]
+	target, ok := routes[host]
 
 	if !ok {
 		http.Error(w, "Domain not configured with Lumatozer", 404)
@@ -40,9 +44,14 @@ func reverseProxy(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	certManager := &autocert.Manager{
-		Cache:      autocert.DirCache("./certs"),
-		Prompt:     autocert.AcceptTOS,
-		HostPolicy: autocert.HostWhitelist("lumatozer.org"),
+		Cache:  autocert.DirCache("./certs"),
+		Prompt: autocert.AcceptTOS,
+		HostPolicy: func(ctx context.Context, host string) error {
+			if _, ok := routes[host]; ok {
+				return nil
+			}
+			return fmt.Errorf("unauthorized domain: %s", host)
+		},
 	}
 
 	go func() {
@@ -64,4 +73,3 @@ func main() {
 	log.Println("HTTPS server running on :443")
 	log.Fatal(server.ListenAndServeTLS("", ""))
 }
-
