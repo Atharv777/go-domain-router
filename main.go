@@ -19,16 +19,7 @@ var routes = map[string]string{
 	"ltz.sh":        "http://localhost:5001",
 }
 
-func isIPAddress(host string) bool {
-	ip := strings.Split(host, ":")[0]
-	return net.ParseIP(ip) != nil
-}
-
 func CertHostPolicy(ctx context.Context, host string) error {
-	if isIPAddress(host) {
-		return nil
-	}
-
 	if _, ok := routes[host]; ok {
 		return nil
 	}
@@ -38,12 +29,6 @@ func CertHostPolicy(ctx context.Context, host string) error {
 func reverseProxy(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Incoming request: Host=%s Path=%s\n ", r.Host, r.URL.Path)
 	host := strings.Split(r.Host, ":")[0]
-
-	if isIPAddress(host) {
-		http.Redirect(w, r, "https://lumatozer.org", http.StatusMovedPermanently)
-		return
-	}
-
 	target, ok := routes[host]
 
 	if !ok {
@@ -74,7 +59,15 @@ func main() {
 
 	go func() {
 		log.Println("Starting HTTP (port 80) for ACME...")
-		err := http.ListenAndServe(":80", certManager.HTTPHandler(nil))
+		err := http.ListenAndServe(":80", certManager.HTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			host := strings.Split(r.Host, ":")[0]
+			if net.ParseIP(host) != nil {
+				http.Redirect(w, r, "https://lumatozer.org", http.StatusMovedPermanently)
+				return
+			}
+			http.Redirect(w, r, "https://"+host+r.RequestURI, http.StatusMovedPermanently)
+		})))
+
 		if err != nil {
 			log.Fatal(err)
 		}
